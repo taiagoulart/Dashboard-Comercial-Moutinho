@@ -800,7 +800,7 @@ function renderNav(){
     const ic = MONTH_ICONS[monthIconType(m)];
     return `<button class="nav-item ${currentPage==='metas' && selectedMonth===m ? 'active':''}" data-month="${m}" title="${ic.label}">
       <div class="mm-icon" style="color:${ic.color};"><svg viewBox="0 0 24 24" fill="none">${ic.svg}</svg></div>
-      <span>${m.replace(' 2026','')}</span>
+      <span>${monthShort(m)}</span>
     </button>`;
   }).join('');
 
@@ -855,7 +855,7 @@ function renderMonthSelector(){
   const html = `
     <button class="vendor-btn">
       <div class="mm-icon" style="color:${icon.color};"><svg viewBox="0 0 24 24" fill="none">${icon.svg}</svg></div>
-      <span>${selectedMonth.replace(' 2026','')}</span>
+      <span>${monthShort(selectedMonth)}</span>
       <svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
     <div class="vendor-menu">
@@ -912,6 +912,7 @@ function monthTense(monthName){
   return 'future';
 }
 function fmtDateShort(s){ return s ? s.split('-').reverse().slice(0,2).join('/') : ''; }
+function monthShort(m){ return m.replace(' 2026','/26'); } // "Junho 2026" -> "Junho/26" (compacto, mas sempre com o ano visível)
 
 function motivationalMsg(st, monthName){
   const tense = monthTense(monthName);
@@ -1093,6 +1094,17 @@ function renderHome(ctx){
           ${companyProj ? `<div style="font-size:12px; color:var(--gray-500); font-weight:600; margin-top:2px;">⏱️ No ritmo atual (${pct(companyProj.pctElapsed)} do mês decorrido), projeção é fechar em <b style="color:${statusOf(companyProj.pctProjecao).color};">${pct(companyProj.pctProjecao)}</b> da meta.</div>` : ''}
         </div>
         <button class="nav-item" style="width:auto; color:var(--red); font-weight:800; flex-shrink:0; padding:10px 6px;" onclick="currentPage='ranking'; render();">Ver ranking completo →</button>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-top:14px;">
+      <div class="stat-mini">
+        <div class="sm-label">Conversão da equipe — por Valor</div>
+        <div class="sm-val">${md.total_vendas>0 ? pct(md.conv_valor) : '—'}</div>
+      </div>
+      <div class="stat-mini">
+        <div class="sm-label">Conversão da equipe — por Quantidade</div>
+        <div class="sm-val">${md.total_vendas>0 ? pct(md.conv_qtd) : '—'}</div>
       </div>
     </div>
 
@@ -1433,6 +1445,17 @@ function renderMetas(ctx){
       <div style="margin-left:auto; font-size:11px; color:var(--gray-400); font-weight:600; text-align:right; max-width:180px;">💼 Valores de meta em R$ disponíveis no Boreo.</div>
     </div>
 
+    <div class="grid grid-2" style="margin-top:14px;">
+      <div class="stat-mini">
+        <div class="sm-label">Conversão da equipe — por Valor</div>
+        <div class="sm-val">${hasData ? pct(md.resumo_mes.conv_valor) : '—'}</div>
+      </div>
+      <div class="stat-mini">
+        <div class="sm-label">Conversão da equipe — por Quantidade</div>
+        <div class="sm-val">${hasData ? pct(md.resumo_mes.conv_qtd) : '—'}</div>
+      </div>
+    </div>
+
     <div class="section-label">Panorama do ano</div>
     <div class="card" style="display:flex; gap:10px; padding:18px; flex-wrap:wrap; justify-content:space-between;">
       ${MONTH_ORDER.map(m=>{
@@ -1442,7 +1465,7 @@ function renderMetas(ctx){
         const isSel = m === selectedMonth;
         return `<div style="flex:1; min-width:70px; text-align:center; cursor:pointer; padding:8px 4px; border-radius:12px; ${isSel?'background:var(--gray-50); border:1.5px solid var(--red);':''}" onclick="selectedMonth='${m}'; selectedWeek=null; render();">
           <div class="mm-icon" style="width:26px; height:26px; margin:0 auto; color:${ic.color};"><svg viewBox="0 0 24 24" fill="none">${ic.svg}</svg></div>
-          <div style="font-size:11px; font-weight:800; margin-top:4px;">${m.replace(' 2026','').slice(0,3)}</div>
+          <div style="font-size:11px; font-weight:800; margin-top:4px;">${m.slice(0,3)}/26</div>
           <div style="font-size:10.5px; font-weight:700; color:var(--gray-500);">${mHasData ? pct(mp) : '—'}</div>
         </div>`;
       }).join('')}
