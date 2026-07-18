@@ -925,7 +925,7 @@ function monthOverMonthBadge(metricKey, monthName){
   const delta = curMd[metricKey] - prevMd[metricKey];
   const up = delta >= 0;
   const color = up ? 'var(--green)' : 'var(--crit)';
-  const deltaTxt = Math.abs(delta*100).toFixed(1).replace('.',',');
+  const deltaTxt = Math.abs(delta*100).toFixed(2).replace('.',',');
   return `<span style="color:${color}; font-size:12px; font-weight:800; margin-left:8px;" title="Comparado a ${monthShort(prevMonth)}">${up?'▲':'▼'} ${up?'+':'-'}${deltaTxt}pp</span>`;
 }
 
@@ -958,6 +958,18 @@ function achieversText(ctx, monthName){
 }
 
 /* ---------------- Projeção de fechamento (só faz sentido no mês em andamento) ---------------- */
+/* conta dias de segunda a sábado (exclui domingo) entre duas datas, incluindo ambas as pontas */
+function countSalesDays(start, end){
+  let count = 0;
+  let d = new Date(start);
+  const endD = new Date(end);
+  while(d <= endD){
+    if(d.getDay() !== 0) count++; // 0 = domingo
+    d.setDate(d.getDate()+1);
+  }
+  return count;
+}
+
 function computeProjection(vendasAtual, meta, monthName){
   if(monthTense(monthName) !== 'current') return null;
   const wd = DATA.months[monthName].week_dates;
@@ -965,8 +977,9 @@ function computeProjection(vendasAtual, meta, monthName){
   const monthStart = new Date(wd[weekNums[0]].start + 'T00:00:00');
   const monthEnd = new Date(wd[weekNums[weekNums.length-1]].end + 'T00:00:00');
   const today = new Date();
-  const totalDays = Math.round((monthEnd - monthStart)/86400000) + 1;
-  let elapsedDays = Math.round((today - monthStart)/86400000) + 1;
+  today.setHours(0,0,0,0);
+  const totalDays = countSalesDays(monthStart, monthEnd);
+  let elapsedDays = countSalesDays(monthStart, today > monthEnd ? monthEnd : today);
   elapsedDays = Math.max(1, Math.min(elapsedDays, totalDays));
   const dailyRate = vendasAtual / elapsedDays;
   const projecao = dailyRate * totalDays;
@@ -1013,7 +1026,10 @@ function daysRemaining(monthName){
   const monthEnd = new Date(wd[weekNums[weekNums.length-1]].end + 'T00:00:00');
   const today = new Date();
   today.setHours(0,0,0,0);
-  return Math.max(0, Math.round((monthEnd - today)/86400000));
+  if(today >= monthEnd) return 0;
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate()+1);
+  return countSalesDays(tomorrow, monthEnd);
 }
 
 function renderHome(ctx){
@@ -1105,7 +1121,7 @@ function renderHome(ctx){
         </div>
         <div style="flex:1;">
           <div style="font-weight:800; font-size:15px;">Meta consolidada da empresa</div>
-          <div style="font-size:12.5px; color:var(--gray-500); font-weight:600;">Status: <span style="color:${cst.color}; font-weight:800;">${cst.label}</span>${md.total_vendas>0 ? ` · Margem média: <b style="color:var(--black);">${pctMC(md.pct_mc_medio)}</b>` : ''}${achieversText(ctx, selectedMonth) ? ` · ${achieversText(ctx, selectedMonth)}` : ''}${diasRest!==null ? ` · ⏳ ${diasRest} dia(s) restante(s) no mês` : ''}</div>
+          <div style="font-size:12.5px; color:var(--gray-500); font-weight:600;">Status: <span style="color:${cst.color}; font-weight:800;">${cst.label}</span>${md.total_vendas>0 ? ` · Margem média: <b style="color:var(--black);">${pctMC(md.pct_mc_medio)}</b> <span style="color:var(--gray-400);">(ideal: 25%)</span>` : ''}${achieversText(ctx, selectedMonth) ? ` · ${achieversText(ctx, selectedMonth)}` : ''}${diasRest!==null ? ` · ⏳ ${diasRest} dia(s) restante(s) no mês` : ''}</div>
           ${companyProj ? `<div style="font-size:12px; color:var(--gray-500); font-weight:600; margin-top:2px;">⏱️ No ritmo atual (${pct(companyProj.pctElapsed)} do mês decorrido), projeção é fechar em <b style="color:${statusOf(companyProj.pctProjecao).color};">${pct(companyProj.pctProjecao)}</b> da meta.</div>` : ''}
         </div>
         <button class="nav-item" style="width:auto; color:var(--red); font-weight:800; flex-shrink:0; padding:10px 6px;" onclick="currentPage='ranking'; render();">Ver ranking completo →</button>
@@ -1115,23 +1131,49 @@ function renderHome(ctx){
     <div class="grid grid-2" style="margin-top:14px;">
       <div class="stat-mini">
         <div class="sm-label">Conversão da equipe — Valor dos Orçamentos</div>
-        <div class="sm-val">${md.total_vendas>0 ? pct(md.conv_valor) : '—'}${md.total_vendas>0 ? monthOverMonthBadge('conv_valor', selectedMonth) : ''}</div>
+        <div class="sm-val">${md.total_vendas>0 ? pctMC(md.conv_valor) : '—'}${md.total_vendas>0 ? monthOverMonthBadge('conv_valor', selectedMonth) : ''}</div>
       </div>
       <div class="stat-mini">
         <div class="sm-label">Conversão da equipe — Qtd. de Orçamentos</div>
-        <div class="sm-val">${md.total_vendas>0 ? pct(md.conv_qtd) : '—'}${md.total_vendas>0 ? monthOverMonthBadge('conv_qtd', selectedMonth) : ''}</div>
+        <div class="sm-val">${md.total_vendas>0 ? pctMC(md.conv_qtd) : '—'}${md.total_vendas>0 ? monthOverMonthBadge('conv_qtd', selectedMonth) : ''}</div>
       </div>
+    </div>
+
+    <div class="section-label">Meta Semanal da Loja — Semana ${ctx.stats[VENDOR_ORDER[0]].latest}</div>
+    <div class="card" style="padding:18px 22px;">
+      ${(()=>{
+        const weekMetaTotal = VENDOR_ORDER.reduce((s,n)=> s + (ctx.stats[n].latestW.meta||0), 0);
+        const weekVendasTotal = VENDOR_ORDER.reduce((s,n)=> s + (ctx.stats[n].latestW.total_vendas||0), 0);
+        const weekPct = weekMetaTotal>0 ? weekVendasTotal/weekMetaTotal : 0;
+        const weekFalta = Math.max(0, 1-weekPct);
+        const wst3 = statusOf(weekPct);
+        return `
+          <div class="bar-track"><div class="bar-fill" style="width:${clamp01(weekPct)*100}%; background:${wst3.color}"></div></div>
+          <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:13px; font-weight:800;">
+            <span style="color:${wst3.color};">✓ Atingido: ${pct(weekPct)}</span>
+            <span style="color:var(--gray-500);">Falta: ${pct(weekFalta)}</span>
+          </div>`;
+      })()}
     </div>
 
     <div class="section-label">Evolução da empresa — % sobre meta por mês</div>
     <div class="card">
       <div class="timeline">
-        ${DATA.historico.map(m=>{
+        ${DATA.historico.map((m,i)=>{
           const has = m.vendido > 0;
           const maxVal = Math.max(...DATA.historico.map(x=>x.pct_meta||0), 1);
           const h = has ? Math.max(6, (m.pct_meta/maxVal)*110) : 6;
+          const prev = i>0 ? DATA.historico[i-1] : null;
+          let evo = '';
+          if(has && prev && prev.vendido>0){
+            const delta = m.pct_meta - prev.pct_meta;
+            const up = delta>=0;
+            const color = up ? 'var(--green)' : 'var(--crit)';
+            evo = `<span style="color:${color}; font-size:9px; font-weight:800;" title="vs. ${monthShort(prev.mes)}: ${up?'+':'-'}${Math.abs(Math.round(delta*100))}pp">${up?'▲':'▼'}${Math.abs(Math.round(delta*100))}</span>`;
+          }
           return `<div class="tl-col">
             <div class="tl-val">${has? pct(m.pct_meta) : '—'}</div>
+            ${evo}
             <div class="tl-bar ${has?'filled':''}" style="height:${h}px"></div>
             <div class="tl-lbl">${m.mes.replace(' 2026','').slice(0,3)}</div>
           </div>`;
@@ -1164,7 +1206,7 @@ function getRankTabs(ctx){
       desc:'% do valor orçado que foi efetivamente vendido.',
       list:ctx.rankingConversaoValor, valOf:(n)=>ctx.stats[n].month.conv_valor, fmt:pct},
     {key:'margem', label:'Margem', short:'Ranking de Margem',
-      desc:'Margem de contribuição média (%) sobre as vendas de cada vendedor.',
+      desc:'Margem de contribuição média (%) sobre as vendas de cada vendedor. Ideal: 25%.',
       list:ctx.rankingMargemTaxa, valOf:(n)=>ctx.stats[n].pctMc, fmt:pctMC},
     {key:'margem_fat', label:'Margem × Faturamento', short:'Margem × Faturamento',
       desc:'Participação de cada vendedor na margem total gerada pela equipe (vendido × margem).',
@@ -1337,7 +1379,7 @@ function renderPerfil(ctx){
           {key:'volume', short:'Volume', icon:'📦', list:wr.byVolume, desc:'Participação no total vendido pela equipe nesta semana.'},
           {key:'conv_qtd', short:'Conversão (Qtd.)', icon:'📋', list:wr.byConvQtd, desc:'% de orçamentos convertidos em venda nesta semana.'},
           {key:'conv_valor', short:'Conversão (Valor)', icon:'💬', list:wr.byConvValor, desc:'% do valor orçado vendido nesta semana.'},
-          {key:'margem', short:'Margem', icon:'💎', list:wr.byMargemTaxa, desc:'Margem média (%) desta semana.'},
+          {key:'margem', short:'Margem', icon:'💎', list:wr.byMargemTaxa, desc:'Margem média (%) desta semana. Ideal: 25%.'},
         ];
         return weekTabs.map(t=>{
           const pos = t.list.indexOf(currentVendor)+1;
@@ -1466,11 +1508,11 @@ function renderMetas(ctx){
     <div class="grid grid-2" style="margin-top:14px;">
       <div class="stat-mini">
         <div class="sm-label">Conversão da equipe — Valor dos Orçamentos</div>
-        <div class="sm-val">${hasData ? pct(md.resumo_mes.conv_valor) : '—'}${hasData ? monthOverMonthBadge('conv_valor', selectedMonth) : ''}</div>
+        <div class="sm-val">${hasData ? pctMC(md.resumo_mes.conv_valor) : '—'}${hasData ? monthOverMonthBadge('conv_valor', selectedMonth) : ''}</div>
       </div>
       <div class="stat-mini">
         <div class="sm-label">Conversão da equipe — Qtd. de Orçamentos</div>
-        <div class="sm-val">${hasData ? pct(md.resumo_mes.conv_qtd) : '—'}${hasData ? monthOverMonthBadge('conv_qtd', selectedMonth) : ''}</div>
+        <div class="sm-val">${hasData ? pctMC(md.resumo_mes.conv_qtd) : '—'}${hasData ? monthOverMonthBadge('conv_qtd', selectedMonth) : ''}</div>
       </div>
     </div>
 
