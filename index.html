@@ -274,7 +274,9 @@
     .bottom-nav .nav-item.active svg{color:var(--red);}
     .main{padding-bottom:70px;}
     .topbar{padding:18px 18px 0 18px; flex-wrap:wrap;}
-    .content{padding:16px 18px 50px 18px;}
+    /* o mobile-topbar já mostra os seletores de mês/vendedor — some com a segunda cópia dentro da página, mantendo só o título */
+    .topbar .topbar-right{display:none;}
+    .content{padding:16px 18px 50px 18px; overflow-x:hidden;}
     .hero{flex-direction:column; text-align:center; gap:18px; padding:24px 18px;}
     .hero-mid .hvalues{justify-content:center;}
     .grid-3{grid-template-columns:1fr;}
@@ -285,6 +287,15 @@
     .rank-row .r-info{width:110px;}
     .podium{gap:8px;}
     .pod-slot{width:105px;}
+    /* abas do Ranking (Total Vendido, % Sobre Meta...) rolam dentro de si mesmas, sem empurrar a página inteira de lado */
+    .tabs{
+      width:auto; max-width:100%; overflow-x:auto; flex-wrap:nowrap;
+      -webkit-overflow-scrolling:touch; scrollbar-width:none;
+    }
+    .tabs::-webkit-scrollbar{display:none;}
+    .tab{flex-shrink:0;}
+    /* mesma proteção para trilhas horizontais que possam existir em outras telas */
+    .podium{max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch;}
   }
 
   /* Loading / erro de carregamento dos dados ao vivo */
