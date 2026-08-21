@@ -461,7 +461,7 @@ function cell(grid, r, c){
 /* ---------------- extração de UM mês a partir da grade CSV (mesmas linhas/colunas da planilha original) ---------------- */
 function extractMonthFromGrid(grid){
   const vendorsOrder = ['Elton','Eduardo','Jeferson','Geraldo','Bruno','Lisiane','Sacha','Jessica','Suelen','Venda Web'];
-  const weeksRanges = {1:[65,74], 2:[79,88], 3:[93,102], 4:[107,116], 5:[121,130]};
+  const weeksRanges = {1:[65,74], 2:[79,88], 3:[93,102], 4:[107,116], 5:[121,130], 6:[135,144]};
   const monthRowMap = {51:'Elton',52:'Eduardo',53:'Jeferson',54:'Geraldo',55:'Bruno',56:'Lisiane',57:'Sacha',58:'Jessica',59:'Suelen',60:'Venda Web'};
 
   function rowVals(r){
@@ -530,7 +530,7 @@ function extractMonthFromGrid(grid){
   };
 
   const week_dates = {};
-  for(let i=1;i<=5;i++){
+  for(let i=1;i<=6;i++){
     const r = 5+i;
     const start = cell(grid,r,30), end = cell(grid,r,31);
     if(start && end) week_dates[i] = {start: parseDateBR(start), end: parseDateBR(end)};
