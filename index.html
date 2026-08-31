@@ -460,49 +460,74 @@ function cell(grid, r, c){
 
 /* ---------------- extração de UM mês a partir da grade CSV (mesmas linhas/colunas da planilha original) ---------------- */
 function extractMonthFromGrid(grid){
-  const vendorsOrder = ['Elton','Eduardo','Jeferson','Geraldo','Bruno','Lisiane','Sacha','Jessica','Suelen','Venda Web'];
-  const weeksRanges = {1:[65,74], 2:[79,88], 3:[93,102], 4:[107,116], 5:[121,130], 6:[135,144]};
-  const monthRowMap = {51:'Elton',52:'Eduardo',53:'Jeferson',54:'Geraldo',55:'Bruno',56:'Lisiane',57:'Sacha',58:'Jessica',59:'Suelen',60:'Venda Web'};
-
   function rowVals(r){
     const arr = [];
     for(let c=1;c<=23;c++) arr.push(cell(grid,r,c));
     return arr;
   }
-
-  const vendors = {};
-  vendorsOrder.forEach(v => vendors[v] = {canal:null, weeks:{}});
-
-  Object.keys(weeksRanges).forEach(wkStr=>{
-    const wk = parseInt(wkStr);
-    const [start,end] = weeksRanges[wkStr];
-    for(let r=start;r<=end;r++){
-      const vals = rowVals(r);
-      const foco = vals[1], vendedor = vals[2];
-      if(vendorsOrder.includes(vendedor)){
-        vendors[vendedor].canal = foco;
-        vendors[vendedor].weeks[wk] = {
-          qt_orc: parseNum(vals[10]), total_orcado: parseNum(vals[11]),
-          qt_vendas: parseNum(vals[12]), total_vendas: parseNum(vals[13]),
-          ticket_medio: parseNum(vals[15]), conv_qtd: parseNum(vals[16]), conv_valor: parseNum(vals[17]),
-          meta: parseNum(vals[18]), pct_meta: parseNum(vals[19]), orcar_p_meta: parseNum(vals[20]),
-          pct_mc: parseNum(vals[21]), mc: parseNum(vals[22]),
-        };
-      }
+  // procura, na coluna B, uma célula cujo texto comece com "prefix", a partir da linha "fromRow"
+  function findRowStartingWith(prefix, fromRow){
+    for(let r=fromRow; r<=grid.length; r++){
+      const v = String(cell(grid,r,2)||'').trim();
+      if(v.indexOf(prefix) === 0) return r;
     }
-  });
-
-  Object.keys(monthRowMap).forEach(rStr=>{
-    const r = parseInt(rStr), v = monthRowMap[rStr];
-    const vals = rowVals(r);
-    vendors[v].month = {
+    return null;
+  }
+  // procura, na coluna B, uma célula com texto EXATAMENTE igual a "text", a partir da linha "fromRow"
+  function findRowExact(text, fromRow){
+    for(let r=fromRow; r<=grid.length; r++){
+      const v = String(cell(grid,r,2)||'').trim();
+      if(v === text) return r;
+    }
+    return null;
+  }
+  function vendorRow(vals){
+    return {
       qt_orc: parseNum(vals[10]), total_orcado: parseNum(vals[11]),
       qt_vendas: parseNum(vals[12]), total_vendas: parseNum(vals[13]),
       ticket_medio: parseNum(vals[15]), conv_qtd: parseNum(vals[16]), conv_valor: parseNum(vals[17]),
       meta: parseNum(vals[18]), pct_meta: parseNum(vals[19]), orcar_p_meta: parseNum(vals[20]),
       pct_mc: parseNum(vals[21]), mc: parseNum(vals[22]),
     };
-  });
+  }
+  // célula "vazia" pode vir como texto realmente vazio OU como "-" (convenção usada na planilha)
+  function isBlankName(v){ return !v || v === '-'; }
+
+  const vendors = {};
+  let monthTotalRow = null;
+
+  // 1) bloco mensal — localizado pelo texto "VISÃO DO MÊS...", não por número de linha.
+  //    Isso significa: se um dia você inserir ou remover uma linha ali (ex: "Outros"), o painel
+  //    encontra o bloco do mesmo jeito, sem precisar de ajuste de código.
+  const monthHeaderRow = findRowStartingWith('VISÃO DO MÊS', 1);
+  if(monthHeaderRow){
+    const monthDataStart = monthHeaderRow + 2; // pula o título e a linha "Foco / Vendedor"
+    monthTotalRow = findRowExact('TOTAL', monthDataStart) || (monthDataStart + 20);
+    for(let r=monthDataStart; r<monthTotalRow; r++){
+      const vals = rowVals(r);
+      const foco = vals[1], vendedor = (vals[2]||'').trim();
+      if(isBlankName(vendedor)) continue; // em branco (ou "-") -> ninguém nesta posição neste mês
+      vendors[vendedor] = {canal: foco, weeks: {}, month: vendorRow(vals)};
+    }
+
+    // 2) blocos semanais (SEMANA 1, SEMANA 2, ... até a última que existir neste mês) — mesmo princípio
+    let searchFrom = monthTotalRow + 1;
+    for(let wk=1; wk<=6; wk++){
+      const weekHeaderRow = findRowStartingWith('SEMANA '+wk, searchFrom);
+      if(!weekHeaderRow) break; // este mês não tem essa semana
+      const weekDataStart = weekHeaderRow + 2;
+      const weekTotalRow = findRowExact('TOTAL SEMANA', weekDataStart);
+      if(!weekTotalRow) break;
+      for(let r=weekDataStart; r<weekTotalRow; r++){
+        const vals = rowVals(r);
+        const vendedor = (vals[2]||'').trim();
+        if(!isBlankName(vendedor) && vendors[vendedor]){
+          vendors[vendedor].weeks[wk] = vendorRow(vals);
+        }
+      }
+      searchFrom = weekTotalRow + 1;
+    }
+  }
 
   const ranking_mc = [];
   for(let r=23;r<=32;r++){
@@ -521,12 +546,15 @@ function extractMonthFromGrid(grid){
     });
   }
 
+  // a Meta (R$) e % Meta da empresa ficam na linha "TOTAL" do bloco mensal — agora lida na posição
+  // real (monthTotalRow), e não mais numa linha fixa, então funciona mesmo com "Outros" inserido.
+  const totalRowForMeta = monthTotalRow || 61;
   const resumo_mes = {
     total_vendas: parseNum(cell(grid,6,2)), total_orcado: parseNum(cell(grid,6,7)),
     conv_valor: parseNum(cell(grid,6,12)), conv_qtd: parseNum(cell(grid,6,17)),
     qt_vendas: parseNum(cell(grid,8,2)), qt_orcamentos: parseNum(cell(grid,8,7)),
     mc_total: parseNum(cell(grid,10,2)), pct_mc_medio: parseNum(cell(grid,10,7)),
-    meta_total: parseNum(cell(grid,61,19)), pct_meta_total: parseNum(cell(grid,61,20)),
+    meta_total: parseNum(cell(grid,totalRowForMeta,19)), pct_meta_total: parseNum(cell(grid,totalRowForMeta,20)),
   };
 
   const week_dates = {};
@@ -584,14 +612,22 @@ function computeActivePeriod(){
 }
 
 /* ---------------- helpers ---------------- */
-const VENDOR_CANAL_MAP = {
-  'Elton':'Varejo','Eduardo':'Varejo','Jeferson':'Varejo',
-  'Sacha':'B2B','Geraldo':'B2B','Lisiane':'B2B','Bruno':'B2B',
-  'Jessica':'Externo B2B','Suelen':'Externo B2B'
-};
+/* VENDOR_ORDER e VENDOR_CANAL_MAP agora são recalculados a cada troca de mês, direto da planilha —
+   quem estiver escrito nas células "Vendedor" aparece; quem sair (célula em branco ou "-") some sozinho;
+   quem entrar (nome novo escrito) aparece sozinho. Nada disso precisa de mudança de código depois. */
+let VENDOR_ORDER = [];
+let VENDOR_CANAL_MAP = {};
+const CHANNEL_ONLY_NAMES = ['Venda Web', 'Outros']; // linhas que não são pessoas — não entram no painel individual
+
+function updateVendorOrderForMonth(monthName){
+  const names = Object.keys(DATA.months[monthName].vendors);
+  VENDOR_ORDER = names.filter(n => !CHANNEL_ONLY_NAMES.includes(n));
+  VENDOR_CANAL_MAP = {};
+  VENDOR_ORDER.forEach(n => { VENDOR_CANAL_MAP[n] = DATA.months[monthName].vendors[n].canal; });
+}
+
 const NO_PHOTO = ['Suelen'];
 const IMG_KEY = {'Elton':'elton','Eduardo':'eduardo','Jeferson':'jeferson','Sacha':'sacha','Geraldo':'geraldo','Lisiane':'lisiane','Bruno':'bruno','Jessica':'jessica','Suelen':'logo_avatar'};
-const VENDOR_ORDER = ['Elton','Eduardo','Jeferson','Sacha','Geraldo','Lisiane','Bruno','Jessica','Suelen'];
 
 function pct(x){ return Math.round((x||0)*100) + '%'; }
 function pctMC(x){ return ((x||0)*100).toFixed(2).replace('.',',') + '%'; }
@@ -608,8 +644,9 @@ function statusOf(p){
 
 function avatarHTML(name, size){
   size = size || 36;
-  if(!NO_PHOTO.includes(name)){
-    return `<img src="${IMAGES[IMG_KEY[name]]}" style="width:${size}px;height:${size}px" alt="${name}">`;
+  const key = IMG_KEY[name];
+  if(!NO_PHOTO.includes(name) && key && IMAGES[key]){
+    return `<img src="${IMAGES[key]}" style="width:${size}px;height:${size}px" alt="${name}">`;
   }
   return `<img src="${IMAGES.logo_avatar}" style="width:${size}px;height:${size}px" alt="${name}">`;
 }
@@ -748,17 +785,17 @@ function badgeProgressText(key, name, ctx){
   if(key === 'campeao'){
     const lider = ctx.rankingGeral[0];
     const gap = ctx.stats[lider].month.pct_meta - st.month.pct_meta;
-    return gap<=0 ? '' : `Faltam ${pct(gap)} para alcançar ${lider}`;
+    return gap<=0 ? '' : `Faltam ${pctMC(gap)} para alcançar ${lider}`;
   }
   if(key === 'evolucao'){
     const lider = ctx.rankingEvolucao[0];
     const gap = ctx.stats[lider].evolution - st.evolution;
-    return gap<=0 ? '' : `Faltam ${pct(gap)} de evolução para alcançar ${lider}`;
+    return gap<=0 ? '' : `Faltam ${pctMC(gap)} de evolução para alcançar ${lider}`;
   }
   if(key === 'conversao'){
     const lider = ctx.rankingConversaoValor[0];
     const gap = ctx.stats[lider].month.conv_valor - st.month.conv_valor;
-    return gap<=0 ? '' : `Faltam ${pct(gap)} de conversão para alcançar ${lider}`;
+    return gap<=0 ? '' : `Faltam ${pctMC(gap)} de conversão para alcançar ${lider}`;
   }
   if(key === 'margem'){
     const lider = ctx.rankingMargemContrib[0];
@@ -773,7 +810,7 @@ function badgeProgressText(key, name, ctx){
   if(key === 'top3'){
     const terceiro = ctx.rankingGeral[2];
     const gap = ctx.stats[terceiro].month.pct_meta - st.month.pct_meta;
-    return gap<=0 ? '' : `Faltam ${pct(gap)} para entrar no Top 3`;
+    return gap<=0 ? '' : `Faltam ${pctMC(gap)} para entrar no Top 3`;
   }
   if(key === 'streak'){
     if(st.streak === 1) return 'Vença mais 1 semana para desbloquear';
@@ -948,14 +985,14 @@ function motivationalMsg(st, monthName){
     return `🗓️ Esse mês ainda não começou — a meta já está definida (consulte os valores no Boreo).`;
   }
   if(tense === 'past'){
-    if(p>=1) return `🏁 Meta batida naquele mês! Fechou em ${pct(p)} da meta.`;
-    if(p>=0.9) return `Faltou apenas ${pct(1-p)} para bater a meta daquele mês.`;
-    return `O mês fechou em ${pct(p)} da meta.`;
+    if(p>=1) return `🏁 Meta batida naquele mês! Fechou em ${pctMC(p)} da meta.`;
+    if(p>=0.9) return `Faltou apenas ${pctMC(1-p)} para bater a meta daquele mês.`;
+    return `O mês fechou em ${pctMC(p)} da meta.`;
   }
   // mês em andamento (atual)
-  if(p>=1) return `🏁 Meta batida! Você está ${pct(p)} da meta — resultado excelente.`;
-  if(p>=0.9) return `🔥 Faltam apenas ${pct(1-p)} para bater a meta do mês.`;
-  if(st.evolution>0) return `📈 Cresceu ${pct(Math.abs(st.evolution))} vs. a semana anterior. Continue assim.`;
+  if(p>=1) return `🏁 Meta batida! Você está ${pctMC(p)} da meta — resultado excelente.`;
+  if(p>=0.9) return `🔥 Faltam apenas ${pctMC(1-p)} para bater a meta do mês.`;
+  if(st.evolution>0) return `📈 Cresceu ${pctMC(Math.abs(st.evolution))} vs. a semana anterior. Continue assim.`;
   return `💪 Ainda dá tempo de virar o mês.`;
 }
 
@@ -1008,24 +1045,24 @@ function generateAlerts(ctx, name){
   const p = st.month.pct_meta;
 
   if(p >= 0.9 && p < 1){
-    alerts.push({icon:'🔥', tone:'warn', text:`Faltam apenas ${pct(1-p)} para bater a meta do mês.`});
+    alerts.push({icon:'🔥', tone:'warn', text:`Faltam apenas ${pctMC(1-p)} para bater a meta do mês.`});
   }
   if(st.evolution <= -0.1){
-    alerts.push({icon:'📉', tone:'crit', text:`Sua % de meta caiu ${pct(Math.abs(st.evolution))} nesta semana em relação à anterior.`});
+    alerts.push({icon:'📉', tone:'crit', text:`Sua % de meta caiu ${pctMC(Math.abs(st.evolution))} nesta semana em relação à anterior.`});
   } else if(st.evolution >= 0.15){
-    alerts.push({icon:'📈', tone:'good', text:`Você acelerou ${pct(st.evolution)} em relação à semana anterior — ótimo ritmo!`});
+    alerts.push({icon:'📈', tone:'good', text:`Você acelerou ${pctMC(st.evolution)} em relação à semana anterior — ótimo ritmo!`});
   }
   const posGeral = ctx.rankingGeral.indexOf(name);
   if(posGeral > 0){
     const nomeAcima = ctx.rankingGeral[posGeral-1];
     const gap = ctx.stats[nomeAcima].month.pct_meta - p;
     if(gap > 0 && gap <= 0.05){
-      alerts.push({icon:'🎯', tone:'good', text:`Faltam só ${pct(gap)} para você ultrapassar ${nomeAcima} no ranking geral.`});
+      alerts.push({icon:'🎯', tone:'good', text:`Faltam só ${pctMC(gap)} para você ultrapassar ${nomeAcima} no ranking geral.`});
     }
   }
   const proj = computeProjection(st.month.total_vendas, st.month.meta, selectedMonth);
   if(proj && proj.pctElapsed >= 0.5 && proj.pctProjecao < 0.85){
-    alerts.push({icon:'⏱️', tone:'warn', text:`No ritmo atual, a projeção é fechar em ${pct(proj.pctProjecao)} da meta — dá pra acelerar.`});
+    alerts.push({icon:'⏱️', tone:'warn', text:`No ritmo atual, a projeção é fechar em ${pctMC(proj.pctProjecao)} da meta — dá pra acelerar.`});
   }
   return alerts.slice(0,3);
 }
@@ -1081,7 +1118,7 @@ function renderHome(ctx){
           <div style="font-weight:800; font-size:15px;">${currentVendor} <span style="color:var(--gray-500); font-weight:700;">— ${st.canal}</span></div>
         </div>
         <div style="text-align:center; flex-shrink:0;">
-          <div style="font-size:21px; font-weight:800; color:${hst.color};">${pct(st.month.pct_meta)}</div>
+          <div style="font-size:21px; font-weight:800; color:${hst.color};">${pctMC(st.month.pct_meta)}</div>
           <div style="font-size:10px; font-weight:700; color:var(--gray-500); text-transform:uppercase;">meta mensal</div>
         </div>
         <button class="nav-item" style="width:auto; color:var(--red); font-weight:800; flex-shrink:0; padding:10px 6px;" onclick="currentPage='perfil'; render();">Ver perfil completo →</button>
@@ -1144,7 +1181,7 @@ function renderHome(ctx){
       <div style="flex:1; min-width:200px;">
         <div style="font-weight:800; font-size:15px;">Meta consolidada da empresa</div>
         <div style="font-size:12.5px; color:var(--gray-500); font-weight:600;">Status: <span style="color:${cst.color}; font-weight:800;">${cst.label}</span>${achieversText(ctx, selectedMonth) ? ` · ${achieversText(ctx, selectedMonth)}` : ''}${diasRest!==null ? ` · ⏳ ${diasRest} dia(s) restante(s) no mês` : ''}</div>
-        ${companyProj ? `<div style="font-size:12px; color:var(--gray-500); font-weight:600; margin-top:2px;">⏱️ No ritmo atual (${pct(companyProj.pctElapsed)} do mês decorrido), projeção é fechar em <b style="color:${statusOf(companyProj.pctProjecao).color};">${pct(companyProj.pctProjecao)}</b> da meta.</div>` : ''}
+        ${companyProj ? `<div style="font-size:12px; color:var(--gray-500); font-weight:600; margin-top:2px;">⏱️ No ritmo atual (${pctMC(companyProj.pctElapsed)} do mês decorrido), projeção é fechar em <b style="color:${statusOf(companyProj.pctProjecao).color};">${pctMC(companyProj.pctProjecao)}</b> da meta.</div>` : ''}
       </div>
       <button class="nav-item" style="width:auto; color:var(--red); font-weight:800; flex-shrink:0; padding:10px 6px;" onclick="currentPage='ranking'; render();">Ver ranking completo →</button>
     </div>
@@ -1180,8 +1217,8 @@ function renderHome(ctx){
         return `
           <div class="bar-track"><div class="bar-fill" style="width:${clamp01(weekPct)*100}%; background:${wst3.color}"></div></div>
           <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:13px; font-weight:800;">
-            <span style="color:${wst3.color};">✓ Atingido: ${pct(weekPct)}</span>
-            <span style="color:var(--gray-500);">Falta: ${pct(weekFalta)}</span>
+            <span style="color:${wst3.color};">✓ Atingido: ${pctMC(weekPct)}</span>
+            <span style="color:var(--gray-500);">Falta: ${pctMC(weekFalta)}</span>
           </div>`;
       })()}
     </div>
@@ -1225,16 +1262,16 @@ function getRankTabs(ctx){
       list:ctx.rankingVolume, valOf:(n)=>null, fmt:()=>''},
     {key:'geral', label:'% Sobre Meta', short:'% Sobre Meta',
       desc:'Ranking pelo % da meta mensal já atingida por cada vendedor.',
-      list:ctx.rankingGeral, valOf:(n)=>ctx.stats[n].month.pct_meta, fmt:pct},
+      list:ctx.rankingGeral, valOf:(n)=>ctx.stats[n].month.pct_meta, fmt:pctMC},
     {key:'volume', label:'Volume de Vendas', short:'Ranking de Volume',
       desc:'Participação de cada vendedor no total vendido pela equipe, independente da meta.',
       list:ctx.rankingVolume, valOf:(n)=>ctx.stats[n].month.total_vendas/ctx.totalVendasEquipe, fmt:pctMC},
     {key:'conv_qtd', label:'Conversão Quantidade', short:'Conversão (Qtd.)',
       desc:'% de orçamentos que viraram venda, em quantidade.',
-      list:ctx.rankingConversaoQtd, valOf:(n)=>ctx.stats[n].month.conv_qtd, fmt:pct},
+      list:ctx.rankingConversaoQtd, valOf:(n)=>ctx.stats[n].month.conv_qtd, fmt:pctMC},
     {key:'conv_valor', label:'Conversão Valores', short:'Conversão (Valor)',
       desc:'% do valor orçado que foi efetivamente vendido.',
-      list:ctx.rankingConversaoValor, valOf:(n)=>ctx.stats[n].month.conv_valor, fmt:pct},
+      list:ctx.rankingConversaoValor, valOf:(n)=>ctx.stats[n].month.conv_valor, fmt:pctMC},
     {key:'margem', label:'Margem', short:'Ranking de Margem',
       desc:'Margem de contribuição média (%) sobre as vendas de cada vendedor. Ideal: 25%.',
       list:ctx.rankingMargemTaxa, valOf:(n)=>ctx.stats[n].pctMc, fmt:pctMC},
@@ -1336,7 +1373,7 @@ function renderPerfil(ctx){
           <div style="position:relative; display:flex; align-items:center; justify-content:center;">
             ${donutSVG(st.month.pct_meta, 128, 13)}
             <div style="position:absolute; text-align:center;">
-              <div class="donut-label" style="font-size:26px;">${pct(st.month.pct_meta)}</div>
+              <div class="donut-label" style="font-size:26px;">${pctMC(st.month.pct_meta)}</div>
               <div class="donut-sub">mensal</div>
             </div>
           </div>
@@ -1355,7 +1392,7 @@ function renderPerfil(ctx){
           <div style="position:relative; display:flex; align-items:center; justify-content:center;">
             ${donutSVG(st.latestW.pct_meta, 128, 13)}
             <div style="position:absolute; text-align:center;">
-              <div class="donut-label" style="font-size:26px;">${pct(st.latestW.pct_meta)}</div>
+              <div class="donut-label" style="font-size:26px;">${pctMC(st.latestW.pct_meta)}</div>
               <div class="donut-sub">semanal</div>
             </div>
           </div>
@@ -1373,8 +1410,8 @@ function renderPerfil(ctx){
           </div>
           <div class="hstatus" style="background:${wst.bg}; color:${wst.color}">● ${wst.label}</div>
           <div class="hvalues" style="margin-top:14px; gap:14px;">
-            <div class="hv-item"><div class="hv-label">Conv. Valor (orçamentos)</div><div class="hv-num">${pct(st.latestW.conv_valor)}</div></div>
-            <div class="hv-item"><div class="hv-label">Conv. Qtd. (orçamentos)</div><div class="hv-num">${pct(st.latestW.conv_qtd)}</div></div>
+            <div class="hv-item"><div class="hv-label">Conv. Valor (orçamentos)</div><div class="hv-num">${pctMC(st.latestW.conv_valor)}</div></div>
+            <div class="hv-item"><div class="hv-label">Conv. Qtd. (orçamentos)</div><div class="hv-num">${pctMC(st.latestW.conv_qtd)}</div></div>
           </div>
         </div>
       </div>
@@ -1428,7 +1465,7 @@ function renderPerfil(ctx){
         <div class="sm-label">Projeção de fechamento do mês</div>
         ${(()=>{ const proj = computeProjection(st.month.total_vendas, st.month.meta, selectedMonth);
           if(!proj) return `<div class="sm-val" style="font-size:13px; color:var(--gray-500);">Só disponível no mês em andamento</div>`;
-          return `<div class="sm-val" style="color:${statusOf(proj.pctProjecao).color};">${pct(proj.pctProjecao)} <span style="font-size:11px; color:var(--gray-500); font-weight:700;">(${pct(proj.pctElapsed)} do mês decorrido)</span></div>`;
+          return `<div class="sm-val" style="color:${statusOf(proj.pctProjecao).color};">${pctMC(proj.pctProjecao)} <span style="font-size:11px; color:var(--gray-500); font-weight:700;">(${pctMC(proj.pctElapsed)} do mês decorrido)</span></div>`;
         })()}
       </div>
     </div>
@@ -1436,7 +1473,7 @@ function renderPerfil(ctx){
     <div class="grid grid-2" style="margin-top:12px;">
       <div class="compare-card">
         <div class="ci" style="background:${evoBg}; color:${evoColor}">${evoUp?'▲':'▼'}</div>
-        <div><div class="cl">vs. semana anterior</div><div class="cv" style="color:${evoColor}">${evoUp?'+':''}${pct(st.evolution)}</div></div>
+        <div><div class="cl">vs. semana anterior</div><div class="cv" style="color:${evoColor}">${evoUp?'+':''}${pctMC(st.evolution)}</div></div>
       </div>
       <div class="compare-card">
         <div class="ci" style="background:var(--gray-50); color:var(--gray-500)">⏳</div>
@@ -1463,11 +1500,11 @@ function renderPerfil(ctx){
           const isView = w === st.latest;
           return `<tr class="week-row" onclick="selectedWeek=${w}; render();" style="border-top:1px solid var(--gray-100); cursor:pointer; ${isView?'background:var(--gray-50);':''}">
             <td style="padding:11px 18px; font-weight:700;">Semana ${w}${isView?' <span style="color:var(--red); font-size:10.5px; font-weight:800;">· visualizando</span>':''}</td>
-            <td style="padding:11px 18px; text-align:right; font-weight:800; color:${wst2.color};">${pct(wk.pct_meta)}</td>
+            <td style="padding:11px 18px; text-align:right; font-weight:800; color:${wst2.color};">${pctMC(wk.pct_meta)}</td>
             <td style="padding:11px 18px; text-align:right; font-weight:700;">${wk.qt_orc}</td>
             <td style="padding:11px 18px; text-align:right; font-weight:700;">${wk.qt_vendas}</td>
-            <td style="padding:11px 18px; text-align:right; font-weight:700;">${pct(wk.conv_valor)}</td>
-            <td style="padding:11px 18px; text-align:right; font-weight:700;">${pct(wk.conv_qtd)}</td>
+            <td style="padding:11px 18px; text-align:right; font-weight:700;">${pctMC(wk.conv_valor)}</td>
+            <td style="padding:11px 18px; text-align:right; font-weight:700;">${pctMC(wk.conv_qtd)}</td>
             <td style="padding:11px 18px; text-align:right; font-weight:700;">${pctMC(wk.pct_mc)}</td>
           </tr>`;
         }).join('')}
@@ -1575,8 +1612,8 @@ function renderMetas(ctx){
         return `
           <div class="bar-track"><div class="bar-fill" style="width:${clamp01(weekPct)*100}%; background:${wst3.color}"></div></div>
           <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:13px; font-weight:800;">
-            <span style="color:${wst3.color};">✓ Atingido: ${pct(weekPct)}</span>
-            <span style="color:var(--gray-500);">Falta: ${pct(weekFalta)}</span>
+            <span style="color:${wst3.color};">✓ Atingido: ${pctMC(weekPct)}</span>
+            <span style="color:var(--gray-500);">Falta: ${pctMC(weekFalta)}</span>
           </div>`;
       })()}
     </div>
@@ -1609,7 +1646,7 @@ function renderMetas(ctx){
             ${!hasData ? `<div style="font-size:12px; color:var(--gray-400); font-weight:700;">Aguardando lançamento de vendas</div>`
               : `<div class="bar-track"><div class="bar-fill" style="width:${clamp01(v.month.pct_meta)*100}%; background:${st2.color}"></div></div>`}
           </div>
-          <div class="r-val">${hasData ? pct(v.month.pct_meta) : '—'}</div>
+          <div class="r-val">${hasData ? pctMC(v.month.pct_meta) : '—'}</div>
         </div>`;
       }).join('')}
     </div>
@@ -1625,6 +1662,8 @@ function getPageMeta(){
 }
 
 function render(){
+  updateVendorOrderForMonth(selectedMonth);
+  if(currentVendor && !VENDOR_ORDER.includes(currentVendor)) currentVendor = null; // vendedor não existe neste mês (ex: saiu da empresa)
   const ctx = buildMonthContext(selectedMonth, selectedWeek);
   renderNav();
   renderVendorSelector();
